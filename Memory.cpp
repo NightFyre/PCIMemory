@@ -1,88 +1,108 @@
 #pragma once
 #include "memory.h"
-#include <iostream>
-#include <string>
-#include <vector>
+
 
 //-----------------------------------------------------------------------------
-//	
+//	-	PCIMemory - Constructors
 //-----------------------------------------------------------------------------
-static bool bInitialized{ false };					//	
-static VMM_HANDLE pHandle{ nullptr };				//	
-static DWORD procID{ 0 };							//	
-static __int64 dwModuleBase{ 0 };					//	
-static VMMDLL_PROCESS_INFORMATION procInfo{ 0 };	//	
 
-//-----------------------------------------------------------------------------
-//	
-//-----------------------------------------------------------------------------
 PCIMemory::PCIMemory()
 {
-	if (pHandle)
-		VMMDLL_Close(pHandle);
-
 	LPSTR args[] = { (LPSTR)"", (LPSTR)"-device" , (LPSTR)"FPGA" };
-	pHandle = VMMDLL_Initialize(3, args);
-
+	PCI_Init(args, 3, pHandle);
 	printf("[+] PCIMemory::PCIMemory\n");
 }
 
 PCIMemory::PCIMemory(const char* procName)
 {
-	if (pHandle)
-		VMMDLL_Close(pHandle);
-	
 	DWORD mType = 3;
 	LPSTR args[] = { (LPSTR)"", (LPSTR)"-device" , (LPSTR)"FPGA" };
-	pHandle = VMMDLL_Initialize(3, args);
-	InitProcess(procName);
+	PCI_InitProcess(args, mType, procName);
 
-	printf("[+] PCIMemory::PCIMemory(const char*)\n");
+	auto test = Read<int>(vmProcess.dwModBase);
+	printf("[+] PCIMemory::PCIMemory(%s)\n- PID:\t\t%d\n- MODULE:\t0x%llX\n- PEB:\t\t0x%llX\n- EMAGIC:\t0x%X\n\n",
+		procName, vmProcess.dwProcID, vmProcess.dwModBase, vmProcess.dwPEB, test);
 }
 
 PCIMemory::PCIMemory(LPSTR* args, const char* procName, DWORD mType)
 {
-	if (pHandle)
-		VMMDLL_Close(pHandle);
+	PCI_InitProcess(args, mType, procName);
 
-
-	pHandle = VMMDLL_Initialize(mType, args);
-	InitProcess(procName);
-
-	printf("[+] PCIMemory::PCIMemory(LPSTR*, cost char*, DWORD)\n");
+	auto test = Read<int>(vmProcess.dwModBase);
+	printf("[+] PCIMemory::PCIMemory({ %s, %s, %s }, %s, %d)\n- PID:\t\t%d\n- MODULE:\t0x%llX\n- PEB:\t\t0x%llX\n- EMAGIC:\t0x%X\n\n",
+		args[0], args[1], args[2], procName, mType, vmProcess.dwProcID, vmProcess.dwModBase, vmProcess.dwPEB, test);
 }
 
 PCIMemory::~PCIMemory() 
 { 
 	if (pHandle)
-		VMMDLL_Close((VMM_HANDLE)pHandle); 
+		VMMDLL_Close(pHandle); 
+
+	PCIProcess emptyInfo{};
+	vmProcess = emptyInfo;
 
 	printf("[-] PCIMemory::~PCIMemory\n");
 }
 
+
 //-----------------------------------------------------------------------------
-//	
+//	-	PCIMemory - Raw Functions
 //-----------------------------------------------------------------------------
 
-bool PCIMemory::InitProcess(const char* procName)
+/*
+* Initializes VMDLL library and returns a default handle for process operations
+* User must manually obtain process information for various operations
+*/
+void PCIMemory::PCI_Init(LPSTR* args, DWORD cType, VMM_HANDLE& vmHandle)
 {
-	VMMDLL_PidGetFromName(pHandle, (LPSTR)procName, &procID);
-	dwModuleBase = GetModuleBase(procID, procName);
-	GetProcInfo(procID, procInfo);
+	//	close any pre-existing handles
+	if (vmHandle)
+		VMMDLL_Close(vmHandle);
+
+	//	initialize VMDLL
+	vmHandle = VMMDLL_Initialize(cType, args);
 }
 
-bool PCIMemory::GetProcID(const char* name, int& result)
+/*
+* Initializes VMMDLL library and auto generates a process structure making it very simple to begin manipulating a specific process
+*/
+void PCIMemory::PCI_InitProcess(LPSTR* args, DWORD cType, const char* procName)
+{
+	if (pHandle)
+		VMMDLL_Close(pHandle);
+
+	vmProcess.dwProcName = std::string(procName);
+
+	//	Initialize VMDLL
+	pHandle = VMMDLL_Initialize(3, args);
+
+	//	Get Process ID
+	VMMDLL_PidGetFromName(pHandle, (LPSTR)vmProcess.dwProcName.c_str(), &vmProcess.dwProcID);
+
+	//	Get Module Base
+	vmProcess.dwModBase = PCI_GetModuleBase(vmProcess.dwProcID, vmProcess.dwProcName.c_str());
+
+	// Get Process PEB
+	vmProcess.dwPEB = PCI_GetProcPEB(vmProcess.dwProcID);
+
+	//	Generate VMDLL_PROCESS_INFORMATION Struct
+	PCI_GetProcInfo(vmProcess.dwProcID, vmProcess.vmProcessInfo);
+}
+
+/**/
+bool PCIMemory::PCI_GetProcessID(const char* name, DWORD& result)
 {
 	if (!pHandle)
-		return false;
+		return PCI_FAILURE;
 
 	return VMMDLL_PidGetFromName((VMM_HANDLE)pHandle, (LPSTR)name, (PDWORD)&result);
 }
 
-bool PCIMemory::GetProcInfo(int dwPID, VMMDLL_PROCESS_INFORMATION& result)
+/**/
+bool PCIMemory::PCI_GetProcInfo(int dwPID, VMMDLL_PROCESS_INFORMATION& result)
 {
 	if (!dwPID)
-		return false;
+		return PCI_FAILURE;
 
 	SIZE_T cbProcessInformation = sizeof(VMMDLL_PROCESS_INFORMATION);
 	ZeroMemory(&result, sizeof(VMMDLL_PROCESS_INFORMATION));
@@ -91,43 +111,81 @@ bool PCIMemory::GetProcInfo(int dwPID, VMMDLL_PROCESS_INFORMATION& result)
 	return VMMDLL_ProcessGetInformation(pHandle, dwPID, &result, &cbProcessInformation);
 }
 
-__int64 PCIMemory::GetModuleBase(int dwPID, const char* name)
+/**/
+__int64 PCIMemory::PCI_GetModuleBase(int dwPID, const char* name)
 {
 	if (!pHandle)
-		return 0;
+		return PCI_ERROR;
 
 	return VMMDLL_ProcessGetModuleBaseU((VMM_HANDLE)pHandle, dwPID, (LPSTR)name);
 }
 
-__int64 PCIMemory::GetProcPEB(int dwPID)
+/**/
+__int64 PCIMemory::PCI_GetProcPEB(int dwPID)
 {
 	VMMDLL_PROCESS_INFORMATION procInfo{};
-	if (!GetProcInfo(dwPID, procInfo))
-		return 0;
+	if (!PCI_GetProcInfo(dwPID, procInfo))
+		return PCI_ERROR;
 
 	return procInfo.win.vaPEB;
 }
 
-bool PCIMemory::ReadVirtualMemory(int dwPID, __int64 pAddress, LPVOID lResult, DWORD cbSize)
+/**/
+__int64 PCIMemory::PCI_GetProcAddress(int dwPID, const char* name, const char* fn)
 {
 	if (!pHandle)
-		return false;
+		return PCI_ERROR;
+
+	return VMMDLL_ProcessGetProcAddressU(pHandle, dwPID, (LPSTR)name, (LPSTR)fn);
+}
+
+/**/
+bool PCIMemory::PCI_GetProcDirectory(int dwPID, const char* modName, std::string& out)
+{
+	PVMMDLL_MAP_MODULEENTRY modEntry32{};
+	if (!VMMDLL_Map_GetModuleFromNameU(pHandle, dwPID, (LPSTR)modName, &modEntry32, 0))
+		return PCI_FAILURE;
+
+	out = modEntry32->uszFullName;
+
+	VMMDLL_MemFree(modEntry32);
+
+	return PCI_SUCCESS;
+}
+
+/**/
+bool PCIMemory::PCI_ReadVirtualMemory(int dwPID, __int64 pAddress, LPVOID lResult, DWORD cbSize)
+{
+	if (!pHandle)
+		return PCI_FAILURE;
 
 	return VMMDLL_MemRead(pHandle, dwPID, pAddress, (PBYTE)lResult, cbSize);
 }
 
-bool PCIMemory::WriteVirtualMemory(int dwPID, __int64 pAddress, LPVOID lPatch, DWORD cbSize)
+/**/
+bool PCIMemory::PCI_ReadVirtualMemoryEx(int dwPID, __int64 pAddress, LPVOID lResult, DWORD cbSize)
 {
 	if (!pHandle)
-		return false;
+		return PCI_FAILURE;
+
+	uint32_t flags = VMMDLL_FLAG_NOCACHE | VMMDLL_FLAG_NOPAGING | VMMDLL_FLAG_ZEROPAD_ON_FAIL | VMMDLL_FLAG_NOPAGING_IO;
+	return VMMDLL_MemReadEx(pHandle, dwPID, pAddress, (PBYTE)lResult, cbSize, nullptr, flags);
+}
+
+/**/
+bool PCIMemory::PCI_WriteVirtualMemory(int dwPID, __int64 pAddress, LPVOID lPatch, DWORD cbSize)
+{
+	if (!pHandle)
+		return PCI_FAILURE;
 
 	return VMMDLL_MemWrite(pHandle, dwPID, pAddress, (PBYTE)lPatch, cbSize);
 }
 
-__int64 PCIMemory::ResolvePtrChain(int dwPID, __int64 baseAddr, DWORD offsets[], int count)
+/**/
+__int64 PCIMemory::PCI_ResolvePtrChain(int dwPID, __int64 baseAddr, DWORD offsets[], int count)
 {
 	if (!pHandle)
-		return 0;
+		return PCI_ERROR;
 
 	__int64 result = baseAddr;
 	for (int i = 0; i < count; i++)
@@ -135,22 +193,24 @@ __int64 PCIMemory::ResolvePtrChain(int dwPID, __int64 baseAddr, DWORD offsets[],
 		result = Read<__int64>(dwPID, result);
 		result += offsets[i];
 	}
+
 	return result;
 }
 
-bool PCIMemory::DumpModule(int dwPID, const char* modName, std::vector<char>& out)
+/**/
+bool PCIMemory::PCI_DumpModule(int dwPID, const char* modName, std::vector<char>& out)
 {
-	PVMMDLL_MAP_MODULEENTRY modEntry32{};
+	PVMMDLL_MAP_MODULEENTRY modEntry32;
 	if (!VMMDLL_Map_GetModuleFromNameU(pHandle, dwPID, (LPSTR)modName, &modEntry32, 0))
-		return false;
+		return PCI_FAILURE;
 
 	__int64 modBase = modEntry32->vaBase;
 	auto fileSize = modEntry32->cbFileSizeRaw;		//	file size
 	auto imageSize = modEntry32->cbImageSize;		//	unpacked file size
-	DWORD mSize = fileSize;							//	@TODO: image size tends to be different and will result in a read failure
+	DWORD mSize = imageSize;						//	@TODO: image size tends to be different and will result in a read failure
 	out.resize(mSize);
 
-	ReadVirtualMemory(dwPID, modBase, out.data(), mSize);
+	PCI_ReadVirtualMemory(dwPID, modBase, out.data(), mSize);
 	///	@TODO: sometimes memory will fail to read even though result will be valid. related to size
 	//	if (!ReadVirtualMemory(dwPID, modBase, out.data(), mSize))
 	//	{
@@ -161,54 +221,82 @@ bool PCIMemory::DumpModule(int dwPID, const char* modName, std::vector<char>& ou
 	//	}
 	VMMDLL_MemFree(modEntry32);
 
-	return true;
+	return PCI_SUCCESS;
 }
 
-bool PCIMemory::DumpBytes(int dwPID, __int64 lpAddress, DWORD cbSize, std::vector<char>& out)
+/**/
+bool PCIMemory::PCI_DumpBytes(int dwPID, __int64 lpAddress, DWORD cbSize, std::vector<char>& out)
 {
 	out.resize(cbSize);
 
-	if (!ReadVirtualMemory(dwPID, lpAddress, out.data(), cbSize))
-		return false;
-
-	return true;
+	return PCI_ReadVirtualMemory(dwPID, lpAddress, out.data(), cbSize);
 }
 
-bool PCIMemory::MapSectionMemory(char* wxBytes, LPVOID& outData, DWORD cbSize)
+/**/
+void PCIMemory::PCI_PrintSectionMemory(int dwPID, __int64 addr, DWORD cbSize)
 {
-	HANDLE hProcess = OpenProcess(PROCESS_VM_WRITE | PROCESS_VM_OPERATION, FALSE, GetCurrentProcessId());
-	if (hProcess == NULL)
-		return false;
+	std::vector<char> outBytes;
+	if (!PCI_DumpBytes(dwPID, addr, cbSize, outBytes))
+		return;
 
-	outData = VirtualAllocEx(hProcess, NULL, cbSize, MEM_COMMIT, PAGE_READWRITE);
-	if (outData == NULL)
-	{
-		CloseHandle(hProcess);
-		return false;
-	}
-
-	SIZE_T bytesWritten;
-	if (!WriteProcessMemory(hProcess, outData, wxBytes, cbSize, &bytesWritten))
-	{
-		VirtualFreeEx(hProcess, outData, 0, MEM_RELEASE);
-		CloseHandle(hProcess);
-		return false;
-	}
-	CloseHandle(hProcess);
-	return true;
+	PrintSectionMemory(outBytes, addr);
 }
 
-bool PCIMemory::FreeMapSection(LPVOID pData, DWORD cbSize)
+/**/
+bool PCIMemory::PCI_DumpSectionToFile(int dwPID, const char* fileName, __int64 addr, DWORD cbSize)
 {
-	HANDLE hProcess = OpenProcess(PROCESS_VM_WRITE | PROCESS_VM_OPERATION, FALSE, GetCurrentProcessId());
-	if (hProcess == NULL)
-		return false;
+	std::vector<char> outBytes;
+	if (!PCI_DumpBytes(dwPID, addr, cbSize, outBytes))
+		return PCI_FAILURE;
 
-	VirtualFreeEx(hProcess, pData, 0, MEM_RELEASE);
-	CloseHandle(hProcess);
-	return true;
+	char buffer[MAX_PATH];
+	DWORD czSize = GetCurrentDirectoryA(MAX_PATH, buffer);
+	std::string dir = buffer;
+	dir += "\\dumps\\";
+	CreateDirectoryA(dir.c_str(), 0);
+	dir += fileName;
+
+
+	auto handle = CreateFileA(dir.c_str(), GENERIC_WRITE, FILE_SHARE_WRITE, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (!handle)
+		return PCI_FAILURE;
+
+	DWORD lpBytesWritten;
+	return WriteFile(handle, outBytes.data(), outBytes.size(), &lpBytesWritten, NULL) && &lpBytesWritten > 0;
 }
 
+/**/
+bool PCIMemory::PCI_DumpModuleToFile(int dwPID, const char* modName)
+{
+	char buffer[MAX_PATH];
+	DWORD czSize = GetCurrentDirectoryA(MAX_PATH, buffer);
+	std::string dir = buffer;
+	dir += "\\dumps\\";
+	CreateDirectoryA(dir.c_str(), 0);
+	dir += modName;
+	return PCI_DumpModuleToFileA(dwPID, dir.c_str(), modName);
+}
+
+/**/
+bool PCIMemory::PCI_DumpModuleToFileA(int dwPID, const char* path, const char* modName)
+{
+	std::vector<char> bytes;
+	if (!PCI_DumpModule(dwPID, modName, bytes))
+		return PCI_FAILURE;
+
+	auto handle = CreateFileA(path, GENERIC_WRITE, FILE_SHARE_WRITE, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (!handle)
+		return PCI_FAILURE;
+
+	DWORD lpBytesWritten;
+	return WriteFile(handle, bytes.data(), bytes.size(), &lpBytesWritten, NULL) && &lpBytesWritten > 0;
+}
+
+//-----------------------------------------------------------------------------
+//	- PCIMemory - Tools
+//-----------------------------------------------------------------------------
+
+/**/
 void PCIMemory::PrintSectionMemory(std::vector<char> bytes, __int64 addr)
 {
 	auto base = addr;
@@ -223,67 +311,127 @@ void PCIMemory::PrintSectionMemory(std::vector<char> bytes, __int64 addr)
 	}
 }
 
-void PCIMemory::PrintSectionMemory(int dwPID, __int64 addr, DWORD cbSize)
+/**/
+bool PCIMemory::MapSectionMemory(char* wxBytes, LPVOID& outData, DWORD cbSize)
 {
-	std::vector<char> outBytes;
-	if (!PCIMemory::DumpBytes(dwPID, addr, cbSize, outBytes))
-		return;
+	static DWORD cProcID = GetCurrentProcessId();
+	HANDLE hProcess = OpenProcess(PROCESS_VM_WRITE | PROCESS_VM_OPERATION, FALSE, cProcID);
+	if (hProcess == NULL)
+		return PCI_FAILURE;
 
-	PrintSectionMemory(outBytes, addr);
+	outData = VirtualAllocEx(hProcess, NULL, cbSize, MEM_COMMIT, PAGE_READWRITE);
+	if (outData == NULL)
+	{
+		CloseHandle(hProcess);
+		return PCI_FAILURE;
+	}
+
+	SIZE_T bytesWritten;
+	if (!WriteProcessMemory(hProcess, outData, wxBytes, cbSize, &bytesWritten))
+	{
+		VirtualFreeEx(hProcess, outData, 0, MEM_RELEASE);
+		CloseHandle(hProcess);
+		return PCI_FAILURE;
+	}
+	CloseHandle(hProcess);
+	return PCI_SUCCESS;
+}
+
+/**/
+bool PCIMemory::FreeMapSection(LPVOID pData, DWORD cbSize)
+{
+	static DWORD cProcID = GetCurrentProcessId();
+	HANDLE hProcess = OpenProcess(PROCESS_VM_WRITE | PROCESS_VM_OPERATION, FALSE, cProcID);
+	if (hProcess == NULL)
+		return PCI_FAILURE;
+
+	VirtualFreeEx(hProcess, pData, 0, MEM_RELEASE);
+	CloseHandle(hProcess);
+	return PCI_SUCCESS;
 }
 
 
 //-----------------------------------------------------------------------------
-//	
+//	- PCIMemory - Class Instance Functions
 //-----------------------------------------------------------------------------
 
-DWORD PCIMemory::GetProcID() { return procID; }
-__int64 PCIMemory::GetModuleBase() { return dwModuleBase; }
+/**/
+DWORD PCIMemory::GetProcID() 
+{ 
+	if (!vmProcess.dwProcID)
+		return PCI_ERROR;
 
-bool PCIMemory::GetProcInfo(VMMDLL_PROCESS_INFORMATION& result)
-{
-	if (!procID)
-		return false;
-
-	return GetProcInfo(procID, result);
+	return vmProcess.dwProcID;
 }
 
+/**/
+__int64 PCIMemory::GetModuleBase() 
+{
+	if (!vmProcess.dwProcID)
+		return PCI_ERROR;
+
+	return vmProcess.dwModBase;
+}
+
+/**/
 __int64 PCIMemory::GetModuleBase(const char* name)
 {
-	if (!procID)
-		return false;
+	if (!vmProcess.dwProcID)
+		return PCI_ERROR;
 
-	GetModuleBase(procID, name);
+	PCI_GetModuleBase(vmProcess.dwProcID, name);
 }
 
+/**/
 __int64 PCIMemory::GetProcPEB()
 {
-	if (!procID)
-		return false;
+	if (!vmProcess.dwProcID)
+		return PCI_ERROR;
 
-	return GetProcPEB(procID);
+	return vmProcess.dwPEB;
 }
 
+/**/
+bool PCIMemory::GetProcInfo(VMMDLL_PROCESS_INFORMATION& result)
+{
+	if (!vmProcess.dwProcID)
+		return PCI_FAILURE;
+
+	return PCI_GetProcInfo(vmProcess.dwProcID, result);
+}
+
+/**/
 bool PCIMemory::ReadVirtualMemory(__int64 pAddress, LPVOID lResult, DWORD cbSize)
 {
-	if (!procID)
-		return false;
+	if (!vmProcess.dwProcID)
+		return PCI_FAILURE;
 
-	return ReadVirtualMemory(procID, pAddress, lResult, cbSize);
+	return PCI_ReadVirtualMemory(vmProcess.dwProcID, pAddress, lResult, cbSize);
 }
 
+/**/
+bool PCIMemory::ReadVirtualMemoryEx(__int64 pAddress, LPVOID lResult, DWORD cbSize)
+{
+	if (!vmProcess.dwProcID)
+		return PCI_FAILURE;
+
+	return PCI_ReadVirtualMemoryEx(vmProcess.dwProcID, pAddress, lResult, cbSize);
+}
+
+/**/
 bool PCIMemory::WriteVirtualMemory(__int64 pAddress, LPVOID lPatch, DWORD cbSize)
 {
-	if (!procID)
-		return false;
+	if (!vmProcess.dwProcID)
+		return PCI_FAILURE;
 
-	return WriteVirtualMemory(procID, pAddress, lPatch, cbSize);
+	return PCI_WriteVirtualMemory(vmProcess.dwProcID, pAddress, lPatch, cbSize);
 }
 
+/**/
 __int64 PCIMemory::ResolvePtrChain(__int64 baseAddr, DWORD offsets[], int count)
 {
-	if (!procID)
-		return false;
+	if (!vmProcess.dwProcID)
+		return PCI_ERROR;
 
-	return ResolvePtrChain(procID, baseAddr, offsets, count);
+	return PCI_ResolvePtrChain(vmProcess.dwProcID, baseAddr, offsets, count);
 }

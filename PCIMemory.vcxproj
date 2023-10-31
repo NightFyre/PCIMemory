@@ -19,7 +19,6 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="LICENSE" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="Memory.cpp" />
   </ItemGroup>
