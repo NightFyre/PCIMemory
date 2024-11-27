@@ -24,9 +24,9 @@ PCIMemory::PCIMemory(const char* procName)
 		procName, vmProcess.dwProcID, vmProcess.dwModBase, vmProcess.dwPEB, test);
 }
 
-PCIMemory::PCIMemory(LPSTR* args, const char* procName, DWORD mType)
+PCIMemory::PCIMemory(LPSTR* args, const char* procName, DWORD argc)
 {
-	PCI_InitProcess(args, mType, procName);
+	PCI_InitProcess(args, argc, procName);
 
 	auto test = Read<int>(vmProcess.dwModBase);
 	printf("[+] PCIMemory::PCIMemory(%s)\n- PID:\t\t%d\n- MODULE:\t0x%llX\n- PEB:\t\t0x%llX\n- EMAGIC:\t0x%X\n\n", 
@@ -53,20 +53,20 @@ PCIMemory::~PCIMemory()
 * Initializes VMDLL library and returns a default handle for process operations
 * User must manually obtain process information for various operations
 */
-void PCIMemory::PCI_Init(LPSTR* args, DWORD cType, VMM_HANDLE& vmHandle)
+void PCIMemory::PCI_Init(LPSTR* args, DWORD argc, VMM_HANDLE& vmHandle)
 {
 	//	close any pre-existing handles
 	if (vmHandle)
 		VMMDLL_Close(vmHandle);
 
 	//	initialize VMDLL
-	vmHandle = VMMDLL_Initialize(cType, args);
+	vmHandle = VMMDLL_Initialize(argc, args);
 }
 
 /*
 * Initializes VMMDLL library and auto generates a process structure making it very simple to begin manipulating a specific process
 */
-void PCIMemory::PCI_InitProcess(LPSTR* args, DWORD cType, const char* procName)
+void PCIMemory::PCI_InitProcess(LPSTR* args, DWORD argc, const char* procName)
 {
 	if (pHandle)
 		VMMDLL_Close(pHandle);
@@ -74,7 +74,7 @@ void PCIMemory::PCI_InitProcess(LPSTR* args, DWORD cType, const char* procName)
 	vmProcess.dwProcName = std::string(procName);
 
 	//	Initialize VMDLL
-	pHandle = VMMDLL_Initialize(3, args);
+	pHandle = VMMDLL_Initialize(argc, args);
 
 	//	Get Process ID
 	VMMDLL_PidGetFromName(pHandle, (LPSTR)vmProcess.dwProcName.c_str(), &vmProcess.dwProcID);
