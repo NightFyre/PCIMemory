@@ -15,9 +15,8 @@ PCIMemory::PCIMemory()
 
 PCIMemory::PCIMemory(const char* procName)
 {
-	DWORD mType = 3;
 	LPSTR args[] = { (LPSTR)"", (LPSTR)"-device" , (LPSTR)"FPGA" };
-	PCI_InitProcess(args, mType, procName);
+	PCI_InitProcess(args, 3, procName);
 
 	auto test = Read<int>(vmProcess.dwModBase);
 	printf("[+] PCIMemory::PCIMemory(%s)\n- PID:\t\t%d\n- MODULE:\t0x%llX\n- PEB:\t\t0x%llX\n- EMAGIC:\t0x%X\n\n",

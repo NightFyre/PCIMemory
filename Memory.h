@@ -41,8 +41,8 @@ public:
 	* 
 	* 
 	*/
-	static void				PCI_Init(LPSTR* args, DWORD cType, VMM_HANDLE& vmHandle);
-	static void				PCI_InitProcess(LPSTR* args, DWORD cType, const char* procName);
+	static void				PCI_Init(LPSTR* args, DWORD argc, VMM_HANDLE& vmHandle);
+	static void				PCI_InitProcess(LPSTR* args, DWORD argc, const char* procName);
 	static bool				PCI_GetProcessID(const char* name, DWORD& dwPID);
 	static __int64			PCI_GetModuleBase(int dwPID, const char* name);
 	static __int64			PCI_GetProcPEB(int dwPID);
