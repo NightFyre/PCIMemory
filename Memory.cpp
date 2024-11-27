@@ -29,8 +29,8 @@ PCIMemory::PCIMemory(LPSTR* args, const char* procName, DWORD mType)
 	PCI_InitProcess(args, mType, procName);
 
 	auto test = Read<int>(vmProcess.dwModBase);
-	printf("[+] PCIMemory::PCIMemory({ %s, %s, %s }, %s, %d)\n- PID:\t\t%d\n- MODULE:\t0x%llX\n- PEB:\t\t0x%llX\n- EMAGIC:\t0x%X\n\n",
-		args[0], args[1], args[2], procName, mType, vmProcess.dwProcID, vmProcess.dwModBase, vmProcess.dwPEB, test);
+	printf("[+] PCIMemory::PCIMemory(%s)\n- PID:\t\t%d\n- MODULE:\t0x%llX\n- PEB:\t\t0x%llX\n- EMAGIC:\t0x%X\n\n", 
+		procName, mType, vmProcess.dwProcID, vmProcess.dwModBase, vmProcess.dwPEB, test);
 }
 
 PCIMemory::~PCIMemory() 
