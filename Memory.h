@@ -7,6 +7,11 @@
 #include <leechcore.h>
 #include <vmmdll.h>
 
+#define KILOBYTE (1 * 1024)						// 1 KB = 1024 Bytes
+#define MEGABYTE (1024 * 1024)					// 1 MB = 1024 KB
+#define GIGABYTE (2048 * 1024)					// 1 GB = 1024 MB
+#define TERABYTE (4096 * 1024)					// 1 TB = 1024 GB
+
 #define PROCESS_NAME ""								//
 inline VMM_HANDLE pHandle{ nullptr };				//	obtained on PCIMemory class construction
 
@@ -15,6 +20,7 @@ struct PCIProcess
 	DWORD			dwProcID;
 	__int64			dwModBase;
 	__int64			dwPEB;
+	__int64			dwCR3;
 	std::string		dwProcName;
 	VMMDLL_PROCESS_INFORMATION vmProcessInfo;
 };
@@ -103,10 +109,17 @@ public:
 	static __int64			GetModuleBase(const char* name);
 	static __int64			GetProcPEB();
 	static bool				GetProcInfo(VMMDLL_PROCESS_INFORMATION& result);
+	static VMMDLL_SCATTER_HANDLE GetScatterHandle();
+	static bool				ClearScatterHandle(VMMDLL_SCATTER_HANDLE hScatter, DWORD flags = VMMDLL_FLAG_NOCACHE);
+	static void				CloseScatterHandle(VMMDLL_SCATTER_HANDLE hScatter);
 	static bool				ReadVirtualMemory(__int64 pAddress, LPVOID lResult, DWORD cbSize);
 	static bool				ReadVirtualMemoryEx(__int64 pAddress, LPVOID lResult, DWORD cbSize);
 	static bool				WriteVirtualMemory(__int64 pAddress, LPVOID patch, DWORD cbSize);
 	static __int64			ResolvePtrChain(__int64 base, DWORD offsets[], int count);
+	static bool				RequestReadScatter(VMMDLL_SCATTER_HANDLE hScatter, __int64 pAddress, LPVOID lResult, DWORD cbSize);
+	static bool				RequestWriteScatter(VMMDLL_SCATTER_HANDLE hScatter, __int64 pAddress, LPVOID lResult, DWORD cbSize);
+	static bool				ExecuteReadScatter(VMMDLL_SCATTER_HANDLE hScatter);
+	static bool				ExecuteWriteScatter(VMMDLL_SCATTER_HANDLE hScatter);
 
 	template<typename T>
 	static T Read(__int64 address, DWORD cbSize)
