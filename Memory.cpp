@@ -1,5 +1,5 @@
 #pragma once
-#include "memory.h"
+#include "Memory.h"
 
 
 //-----------------------------------------------------------------------------
@@ -182,6 +182,78 @@ bool PCIMemory::PCI_WriteVirtualMemory(int dwPID, __int64 pAddress, LPVOID lPatc
 }
 
 /**/
+VMMDLL_SCATTER_HANDLE PCIMemory::PCI_CreateScatterHandle(int dwPID)
+{
+	if (!pHandle)
+		return PCI_FAILURE;
+
+	return VMMDLL_Scatter_Initialize(pHandle, dwPID, VMMDLL_FLAG_NOCACHE);
+}
+
+/**/
+bool PCIMemory::PCI_ClearScatterHandle(VMMDLL_SCATTER_HANDLE hScatter, int dwPID, DWORD flags)
+{
+	if (!pHandle)
+		return PCI_FAILURE;
+
+	return VMMDLL_Scatter_Clear(hScatter, dwPID, flags);
+}
+
+/**/
+void PCIMemory::PCI_CloseScatterHandle(VMMDLL_SCATTER_HANDLE hScatter)
+{
+	VMMDLL_Scatter_CloseHandle(hScatter);
+}
+
+/**/
+bool PCIMemory::PCI_AddReadScatterRequest(VMMDLL_SCATTER_HANDLE hScatter, __int64 pAddress, LPVOID lResult, DWORD cbSize)
+{
+	if (!pHandle)
+		return PCI_FAILURE;
+
+	return VMMDLL_Scatter_PrepareEx(hScatter, pAddress, cbSize, (PBYTE)lResult, 0);
+}
+
+/**/
+bool PCIMemory::PCI_AddWriteScatterRequest(VMMDLL_SCATTER_HANDLE hScatter, __int64 pAddress, LPVOID lResult, DWORD cbSize)
+{
+	if (!pHandle)
+		return PCI_FAILURE;
+
+	return VMMDLL_Scatter_PrepareWrite(hScatter, pAddress, (PBYTE)lResult, cbSize);
+}
+
+/**/
+bool PCIMemory::PCI_ExecuteReadScatterRequest(VMMDLL_SCATTER_HANDLE hScatter, int dwPID)
+{
+	if (!pHandle)
+		return PCI_FAILURE;
+
+	if (!VMMDLL_Scatter_ExecuteRead(hScatter))
+		return false;
+
+	if (!VMMDLL_Scatter_Clear(hScatter, dwPID, 0))
+		return false;
+
+	return true;
+}
+
+/**/
+bool PCIMemory::PCI_ExecuteWriteScatterRequest(VMMDLL_SCATTER_HANDLE hScatter, int dwPID)
+{
+	if (!pHandle)
+		return PCI_FAILURE;
+
+	if (!VMMDLL_Scatter_Execute(hScatter))
+		return false;
+
+	if (!VMMDLL_Scatter_Clear(hScatter, dwPID, 0))
+		return false;
+
+	return true;
+}
+
+/**/
 __int64 PCIMemory::PCI_ResolvePtrChain(int dwPID, __int64 baseAddr, DWORD offsets[], int count)
 {
 	if (!pHandle)
@@ -262,7 +334,7 @@ bool PCIMemory::PCI_DumpSectionToFile(int dwPID, const char* fileName, __int64 a
 		return PCI_FAILURE;
 
 	DWORD lpBytesWritten;
-	return WriteFile(handle, outBytes.data(), outBytes.size(), &lpBytesWritten, NULL) && &lpBytesWritten > 0;
+	return WriteFile(handle, outBytes.data(), outBytes.size(), &lpBytesWritten, NULL) && lpBytesWritten > 0;
 }
 
 /**/
@@ -289,7 +361,7 @@ bool PCIMemory::PCI_DumpModuleToFileA(int dwPID, const char* path, const char* m
 		return PCI_FAILURE;
 
 	DWORD lpBytesWritten;
-	return WriteFile(handle, bytes.data(), bytes.size(), &lpBytesWritten, NULL) && &lpBytesWritten > 0;
+	return WriteFile(handle, bytes.data(), bytes.size(), &lpBytesWritten, NULL) && lpBytesWritten > 0;
 }
 
 //-----------------------------------------------------------------------------
@@ -401,6 +473,33 @@ bool PCIMemory::GetProcInfo(VMMDLL_PROCESS_INFORMATION& result)
 }
 
 /**/
+VMMDLL_SCATTER_HANDLE PCIMemory::GetScatterHandle()
+{
+	if (!vmProcess.dwProcID)
+		return PCI_FAILURE;
+
+	return PCI_CreateScatterHandle(vmProcess.dwProcID);
+}
+
+/**/
+bool PCIMemory::ClearScatterHandle(VMMDLL_SCATTER_HANDLE hScatter, DWORD flags)
+{
+	if (!vmProcess.dwProcID)
+		return PCI_FAILURE;
+
+	return PCI_ClearScatterHandle(hScatter, vmProcess.dwProcID, flags);
+}
+
+/**/
+void PCIMemory::CloseScatterHandle(VMMDLL_SCATTER_HANDLE hScatter)
+{
+	if (!vmProcess.dwProcID)
+		return;
+
+	return PCI_CloseScatterHandle(hScatter);
+}
+
+/**/
 bool PCIMemory::ReadVirtualMemory(__int64 pAddress, LPVOID lResult, DWORD cbSize)
 {
 	if (!vmProcess.dwProcID)
@@ -434,4 +533,40 @@ __int64 PCIMemory::ResolvePtrChain(__int64 baseAddr, DWORD offsets[], int count)
 		return PCI_ERROR;
 
 	return PCI_ResolvePtrChain(vmProcess.dwProcID, baseAddr, offsets, count);
+}
+
+/**/
+bool PCIMemory::RequestReadScatter(VMMDLL_SCATTER_HANDLE hScatter, __int64 pAddress, LPVOID lResult, DWORD cbSize)
+{
+	if (!vmProcess.dwProcID)
+		return PCI_FAILURE;
+
+	return PCI_AddReadScatterRequest(hScatter, pAddress, lResult, cbSize);
+}
+
+/**/
+bool PCIMemory::RequestWriteScatter(VMMDLL_SCATTER_HANDLE hScatter, __int64 pAddress, LPVOID lResult, DWORD cbSize)
+{
+	if (!vmProcess.dwProcID)
+		return PCI_FAILURE;
+
+	return PCI_AddWriteScatterRequest(hScatter, pAddress, lResult, cbSize);
+}
+
+/**/
+bool PCIMemory::ExecuteReadScatter(VMMDLL_SCATTER_HANDLE hScatter)
+{
+	if (!vmProcess.dwProcID)
+		return PCI_FAILURE;
+
+	return PCI_ExecuteReadScatterRequest(hScatter, vmProcess.dwProcID);
+}
+
+/**/
+bool PCIMemory::ExecuteWriteScatter(VMMDLL_SCATTER_HANDLE hScatter)
+{
+	if (!vmProcess.dwProcID)
+		return PCI_FAILURE;
+
+	return PCI_ExecuteWriteScatterRequest(hScatter, vmProcess.dwProcID);
 }
