@@ -46,7 +46,8 @@ public:
 	static bool				PCI_GetProcessID(const char* name, DWORD& dwPID);
 	static __int64			PCI_GetModuleBase(int dwPID, const char* name);
 	static __int64			PCI_GetProcPEB(int dwPID);
-	static __int64			PCI_GetProcAddress(int dwPID, const char* name, const char* fn);
+	static __int64			PCI_GetProcAddress(int dwPID, LPSTR name, LPSTR fn);
+	static bool				PCI_GetProcAddressEx(int dwPID, LPWSTR modName, LPWSTR exportName, __int64* out);
 	static bool				PCI_GetProcDirectory(int dwPID, const char* modName, std::string& out);
 	static bool				PCI_GetProcInfo(int dwPID, VMMDLL_PROCESS_INFORMATION& result);
 	static bool				PCI_ReadVirtualMemory(int dwPID, __int64 pAddress, LPVOID lResult, DWORD cbSize);
@@ -54,6 +55,13 @@ public:
 	static bool				PCI_WriteVirtualMemory(int dwPID, __int64 pAddress, LPVOID patch, DWORD cbSize);
 	static __int64			PCI_ResolvePtrChain(int dwPID, __int64 base, DWORD offsets[], int count);
 	static bool				PCI_DumpModule(int dwPID, const char* modName, std::vector<char>& out);
+	static VMMDLL_SCATTER_HANDLE PCI_CreateScatterHandle(int dwPID, DWORD dwFlags);
+	static bool				PCI_ClearScatterHandle(VMMDLL_SCATTER_HANDLE hScatter, int dwPID, DWORD flags);
+	static void				PCI_CloseScatterHandle(VMMDLL_SCATTER_HANDLE hScatter);
+	static bool				PCI_AddReadScatterRequest(VMMDLL_SCATTER_HANDLE hScatter, __int64 pAddress, LPVOID lResult, DWORD cbSize);
+	static bool				PCI_AddWriteScatterRequest(VMMDLL_SCATTER_HANDLE hScatter, __int64 pAddress, LPVOID lResult, DWORD cbSize);
+	static bool				PCI_ExecuteReadScatterRequest(VMMDLL_SCATTER_HANDLE hScatter, int dwPID);
+	static bool				PCI_ExecuteWriteScatterRequest(VMMDLL_SCATTER_HANDLE hScatter, int dwPID);
 	static bool				PCI_DumpBytes(int dwPID, __int64 lpAddress, DWORD cbSize, std::vector<char>& out);
 	static bool				PCI_DumpSectionToFile(int dwPID, const char* fileName, __int64 addr, DWORD cbSize);
 	static bool				PCI_DumpModuleToFile(int dwPID, const char* modName);
