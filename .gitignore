@@ -10,3 +10,4 @@
 # unignore source files
 !**/*.h
 !memory.hpp
+!README.md
